@@ -1,2 +1,8 @@
-# time-series-analysis
-Time series analysis of USD/PLN exchange rates and seasonal greenhouse gas consumption using exponential smoothing, ARIMA and SARIMA models.
+# Dane
+
+Umieść tutaj pliki:
+
+- `Gworek_ASC_niesezonowe.csv`
+- `Gworek_ASC_sezonowe.csv`
+
+Skrypty R odwołują się do tych plików względnie względem katalogu projektu.
