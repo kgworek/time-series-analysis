@@ -1,0 +1,257 @@
+---
+title: "Time Series Analysis"
+author: "Katarzyna Gworek"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: readable
+    code_folding: hide
+---
+
+# Project overview
+
+This report analyses two monthly time series from January 2012 to December 2022. The first is the USD/PLN exchange rate, while the second describes greenhouse gas consumption in Italy. The analysis combines data visualization, decomposition, exponential smoothing and ARIMA/SARIMA forecasting.
+
+This report presents the analysis of two monthly time series covering January 2012–December 2022.
+
+The first series describes the USD/PLN exchange rate. The second describes greenhouse gas consumption in Italy. Both series were decomposed in JDemetra+ and subsequently analysed using extrapolation models and ARIMA/SARIMA models.
+
+# 1. Non-seasonal time series – USD/PLN
+
+## 1.1 Data preparation
+
+The USD/PLN data are converted into a monthly time series. The last three observations are kept as an out-of-sample period for forecast evaluation.
+
+```{r setup-nonseasonal, message=FALSE, warning=FALSE}
+library(foreign)
+library(xts)
+library(urca)
+library(lmtest)
+library(fBasics)
+library(forecast)
+library(tseries)
+library(fUnitRoots)
+
+ASC_niesezonowe <- read.csv(
+  "dane/Gworek_ASC_niesezonowe.csv",
+  header = TRUE, sep = ";", dec = ","
+)
+
+ASC_niesezonowe.ts <- ts(
+  ASC_niesezonowe$rate, start = c(2012, 1), frequency = 12
+)
+
+ASC_niesezonowe.in <- window(ASC_niesezonowe.ts, end = c(2022, 9))
+ASC_niesezonowe.out <- window(ASC_niesezonowe.ts, start = c(2022, 10))
+```
+
+The training sample contains observations up to September 2022, while October–December 2022 are used to test forecast accuracy.
+
+## 1.2 Visualization
+
+The plot is used to assess the general behaviour of the exchange rate and to check for visible trend or seasonal patterns. The series does not show a clear seasonal pattern.
+
+```{r plot-nonseasonal}
+plot(ASC_niesezonowe.ts,
+     main = "USD/PLN exchange rate",
+     xlab = "Date", ylab = "Exchange rate")
+```
+
+## 1.3 Exponential smoothing – EWMA
+
+EWMA is used as a simple benchmark model without trend or seasonality. It provides a short-term forecast based mainly on the recent level of the series.
+
+```{r ewma}
+EWMA <- HoltWinters(ASC_niesezonowe.in, beta = FALSE, gamma = FALSE)
+
+EWMA.forecast <- predict(
+  EWMA, n.ahead = 3, prediction.interval = TRUE
+)
+EWMA.forecast
+```
+
+```{r ewma-plot}
+plot(ASC_niesezonowe.ts, main = "EWMA forecast",
+     xlab = "Date", ylab = "Exchange rate")
+lines(EWMA.forecast[, 1])
+lines(EWMA.forecast[, 2], lty = 2)
+lines(EWMA.forecast[, 3], lty = 2)
+abline(v = 2022 + 9/12, lty = 2)
+```
+
+## 1.4 Holt model
+
+The Holt model extends exponential smoothing by allowing for a trend. It is therefore compared with EWMA because the exchange rate shows a general upward movement over the analysed period.
+
+```{r holt}
+Holt <- HoltWinters(ASC_niesezonowe.in, gamma = FALSE)
+
+Holt.forecast <- predict(
+  Holt, n.ahead = 3, prediction.interval = TRUE
+)
+Holt.forecast
+```
+
+```{r holt-plot}
+plot(ASC_niesezonowe.ts, main = "Holt forecast",
+     xlab = "Date", ylab = "Exchange rate")
+lines(Holt.forecast[, 1])
+lines(Holt.forecast[, 2], lty = 2)
+lines(Holt.forecast[, 3], lty = 2)
+abline(v = 2022 + 9/12, lty = 2)
+```
+
+## 1.5 ARIMA analysis
+
+The first differences are examined to obtain a stationary series. ACF and PACF are then used to identify plausible AR and MA orders before comparing alternative ARIMA specifications.
+
+```{r arima-preparation}
+diff.ASC_niesezonowe.in <- diff.xts(ASC_niesezonowe.in)
+
+plot(diff.ASC_niesezonowe.in, type = "l",
+     main = "First differences of USD/PLN")
+
+Acf(diff.ASC_niesezonowe.in, lag.max = 24)
+Pacf(diff.ASC_niesezonowe.in, lag.max = 24)
+```
+
+```{r arima-models}
+arima313 <- arima(diff.ASC_niesezonowe.in, order = c(3, 0, 3))
+arima213 <- arima(diff.ASC_niesezonowe.in, order = c(2, 0, 3))
+arima113 <- arima(diff.ASC_niesezonowe.in, order = c(1, 0, 3))
+arima112 <- arima(diff.ASC_niesezonowe.in, order = c(1, 0, 2))
+
+AIC(arima313); BIC(arima313)
+AIC(arima213); BIC(arima213)
+AIC(arima112); BIC(arima112)
+```
+
+## 1.6 Residual diagnostics
+
+Residual ACF, PACF and Ljung–Box/Box–Pierce tests are used to check whether the selected ARIMA model has adequately captured the dependence in the data.
+
+```{r arima-diagnostics}
+Acf(resid(arima112), lag.max = 24)
+Pacf(resid(arima112), lag.max = 24)
+
+Box.test(resid(arima112), type = "Ljung-Box", lag = 24)
+Box.test(resid(arima112), type = "Box-Pierce", lag = 24)
+```
+
+# 2. Seasonal time series – greenhouse gas consumption in Italy
+
+The second series has a clear seasonal pattern: consumption is generally higher in winter and lower during spring and summer. This makes seasonal forecasting methods appropriate.
+
+## 2.1 Data preparation
+
+The Italian greenhouse gas consumption data are converted into a monthly time series. Twelve observations from 2022 are reserved as the out-of-sample period, representing one complete seasonal cycle.
+
+```{r setup-seasonal, message=FALSE, warning=FALSE}
+ASC_sezonowe <- read.csv(
+  "dane/Gworek_ASC_sezonowe.csv",
+  header = TRUE, sep = ";"
+)
+
+ASC_sezonowe.ts <- ts(
+  ASC_sezonowe$Value, start = c(2012, 1), frequency = 12
+)
+
+sezonowy.in <- window(ASC_sezonowe.ts, end = c(2021, 12))
+sezonowy.out <- window(ASC_sezonowe.ts, start = c(2022, 1))
+```
+
+A full year is reserved for testing so that the forecast evaluation covers all months of the seasonal cycle.
+
+## 2.2 Visualization
+
+The time-series plot is used to identify the main trend and recurring seasonal fluctuations. The visible annual pattern supports the use of seasonal models.
+
+```{r seasonal-plot}
+plot(ASC_sezonowe.ts,
+     main = "Greenhouse gas consumption in Italy",
+     xlab = "Date", ylab = "TJ (GCV)")
+```
+
+## 2.3 Holt-Winters models
+
+Both additive and multiplicative Holt-Winters models are estimated because the appropriate form of seasonality is not obvious from the plot alone. Their forecasts can then be compared using forecast errors.
+
+```{r holt-winters}
+sezonowy.HWadd <- HoltWinters(sezonowy.in, seasonal = "additive")
+sezonowy.HWmult <- HoltWinters(sezonowy.in, seasonal = "multiplicative")
+
+sezonowy.HWadd.forecast <- predict(
+  sezonowy.HWadd, n.ahead = 12, prediction.interval = TRUE
+)
+sezonowy.HWmult.forecast <- predict(
+  sezonowy.HWmult, n.ahead = 12, prediction.interval = TRUE
+)
+
+sezonowy.HWadd.forecast
+sezonowy.HWmult.forecast
+```
+
+## 2.4 Logarithmic transformation and differencing
+
+The logarithm is used to reduce the scale of the series. Regular and seasonal differences are examined to obtain a stationary series suitable for SARIMA modelling.
+
+```{r seasonal-differencing}
+ln.sezonowy <- log(ASC_sezonowe.ts)
+ln.sezonowy.in <- window(ln.sezonowy, end = c(2021, 12))
+
+ln.diff.sezonowy.in <- diff.xts(ln.sezonowy.in, lag = 1)
+sdiff.ln.diff.sezonowy.in <- diff.xts(ln.diff.sezonowy.in, lag = 12)
+
+Acf(sdiff.ln.diff.sezonowy.in, lag.max = 36)
+Pacf(sdiff.ln.diff.sezonowy.in, lag.max = 36)
+```
+
+## 2.5 SARIMA models
+
+SARIMA models account for both non-seasonal and seasonal dependence. Alternative specifications are compared using information criteria and model diagnostics.
+
+```{r sarima}
+nobs <- length(ln.sezonowy.in)
+
+arima010111 <- arima(
+  ln.sezonowy.in,
+  order = c(0, 1, 0),
+  seasonal = list(order = c(1, 1, 1), period = 12),
+  xreg = 1:nobs
+)
+
+arima010011 <- arima(
+  ln.sezonowy.in,
+  order = c(0, 1, 0),
+  seasonal = list(order = c(0, 1, 1), period = 12),
+  xreg = 1:nobs
+)
+
+AIC(arima010111); BIC(arima010111)
+AIC(arima010011); BIC(arima010011)
+```
+
+## 2.6 Residual diagnostics
+
+Residual ACF, PACF and Ljung–Box/Box–Pierce tests are used to assess whether the selected SARIMA model adequately captures the remaining autocorrelation.
+
+```{r sarima-diagnostics}
+Acf(resid(arima010111), lag.max = 36)
+Pacf(resid(arima010111), lag.max = 36)
+
+Box.test(resid(arima010111), type = "Ljung-Box", lag = 36)
+Box.test(resid(arima010111), type = "Box-Pierce", lag = 36)
+```
+
+# 3. Forecast evaluation
+
+Forecasts are evaluated on the out-of-sample observations using MAE, MSE, MAPE and AMAPE. Lower values indicate more accurate forecasts. For the USD/PLN series, ARIMA(1,1,2) performed best in the original analysis. For Italian greenhouse gas consumption, SARIMA(1,1,1)(0,1,1) achieved the lowest forecast errors among the compared models.
+
+Forecast accuracy is evaluated using MAE, MSE, MAPE and AMAPE. Lower values indicate better forecast performance.
+
+# 4. Conclusions
+
+The results show that the appropriate forecasting method depends on the structure of the series. The non-seasonal USD/PLN series is better described by ARIMA(1,1,2), while the seasonal Italian consumption series is better forecast with SARIMA(1,1,1)(0,1,1).
+
+The analysis combines decomposition, exponential smoothing and ARIMA/SARIMA modelling for two different types of monthly time series: the USD/PLN exchange rate and greenhouse gas consumption in Italy.
